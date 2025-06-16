@@ -226,9 +226,11 @@ private void CheckWorkerTimeouts(object? state)
 
 ## 8. 通信机制
 
-### 8.1 RPC 服务接口
+### 8.1 WCF 服务接口
 ```csharp
-// RPC服务接口 - 来自 src/MapReduce.Common/Contracts/IMapReduceService.cs
+// WCF服务接口 - 来自 src/MapReduce.Common/Contracts/IMapReduceService.cs
+using System.ServiceModel;
+
 [ServiceContract]
 public interface IMapReduceService
 {
@@ -249,11 +251,19 @@ public interface IMapReduceService
 }
 ```
 
+**WCF 特性说明：**
+- `[ServiceContract]` - 标识服务契约接口
+- `[OperationContract]` - 标识可远程调用的操作
+- 使用 `System.ServiceModel.Primitives` 包提供跨平台支持
+- 支持多种传输协议（HTTP、TCP、命名管道等）
+- 提供企业级的安全性和事务支持
+
 ### 8.2 通信协议
-- **任务请求**：Worker 定期向 Master 请求新任务
-- **状态报告**：Worker 完成任务后向 Master 报告结果
-- **心跳检测**：Worker 定期发送心跳保持连接
-- **状态查询**：支持查询整体执行状态
+- **任务请求**：Worker 通过 WCF 向 Master 请求新任务
+- **状态报告**：Worker 完成任务后通过 WCF 向 Master 报告结果
+- **心跳检测**：Worker 定期通过 WCF 发送心跳保持连接
+- **状态查询**：支持通过 WCF 查询整体执行状态
+- **服务发现**：支持 WCF 的服务发现和负载均衡机制
 
 ## 9. 系统特性
 
