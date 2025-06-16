@@ -1,0 +1,45 @@
+{
+    // 排除文件和文件夹，不在资源管理器中显示
+    "files.exclude": {
+        "**/bin": true,
+        "**/obj": true,
+        "**/.vs": true,
+        "**/Debug": true,
+        "**/Release": true,
+        "**/*.user": true,
+        "**/.vscode": false
+    },
+    
+    // 搜索时排除的文件和文件夹
+    "search.exclude": {
+        "**/bin": true,
+        "**/obj": true,
+        "**/.vs": true,
+        "**/Debug": true,
+        "**/Release": true,
+        "**/*.user": true
+    },
+    
+    // 文件监视排除规则
+    "files.watcherExclude": {
+        "**/bin/**": true,
+        "**/obj/**": true,
+        "**/.vs/**": true,
+        "**/Debug/**": true,
+        "**/Release/**": true
+    },
+    
+    // C# 开发相关设置
+    "omnisharp.enableEditorConfigSupport": true,
+    "omnisharp.enableRoslynAnalyzers": true,
+    
+    // 格式化设置
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+        "source.organizeImports": "explicit"
+    },
+    
+    // .NET 相关设置
+    "dotnet.completion.showCompletionItemsFromUnimportedNamespaces": true,
+    "dotnet.codeLens.enableReferencesCodeLens": true
+} 
