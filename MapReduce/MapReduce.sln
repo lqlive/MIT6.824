@@ -2,15 +2,15 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MapReduce.Common", "MapReduce.Common\MapReduce.Common.csproj", "{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MapReduce.Common", "src\MapReduce.Common\MapReduce.Common.csproj", "{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MapReduce.Examples", "MapReduce.Examples\MapReduce.Examples.csproj", "{B2C3D4E5-F6G7-8901-BCDE-F23456789012}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MapReduce.Examples", "src\MapReduce.Examples\MapReduce.Examples.csproj", "{B2C3D4E5-F6G7-8901-BCDE-F23456789012}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MapReduce.Master", "MapReduce.Master\MapReduce.Master.csproj", "{C3D4E5F6-G7H8-9012-CDEF-G34567890123}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MapReduce.Master", "src\MapReduce.Master\MapReduce.Master.csproj", "{C3D4E5F6-G7H8-9012-CDEF-G34567890123}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MapReduce.Worker", "MapReduce.Worker\MapReduce.Worker.csproj", "{D4E5F6G7-H8I9-0123-DEFG-H45678901234}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MapReduce.Worker", "src\MapReduce.Worker\MapReduce.Worker.csproj", "{D4E5F6G7-H8I9-0123-DEFG-H45678901234}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MapReduce.Tests", "MapReduce.Tests\MapReduce.Tests.csproj", "{E5F6G7H8-I9J0-1234-EFGH-I56789012345}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MapReduce.Tests", "src\MapReduce.Tests\MapReduce.Tests.csproj", "{E5F6G7H8-I9J0-1234-EFGH-I56789012345}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
