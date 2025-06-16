@@ -275,7 +275,7 @@ dotnet test --collect:"XPlat Code Coverage"
 
 ## 📧 联系方式
 
-- 项目维护者：[qing long]
+- 项目维护者：[qing long](https://github.com/lqlive)
 - 邮箱：zze@live.com
 - 问题反馈：[Issues](https://github.com/lqlive/MIT6.824/issues)
 
