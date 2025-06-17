@@ -1,0 +1,16 @@
+hello world hello
+the quick brown fox jumps over the lazy dog
+hello world again and again
+MapReduce is powerful MapReduce framework
+distributed computing with distributed systems
+word count test for word frequency analysis
+the the the most frequent word
+HELLO Hello hello different cases
+punctuation, test! with? various. symbols;
+123 numbers and words mixed together
+single
+multiple words on this line here
+empty lines and spaces test
+
+
+final line with final words

@@ -1,4 +1,3 @@
-using MapReduce.Worker;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -23,22 +22,43 @@ namespace MapReduce.Worker
             {
                 // 解析命令行参数
                 string masterEndpoint = "http://localhost:8080";
+                string outputDirectory = "output";
 
                 if (args.Length > 0)
                 {
                     masterEndpoint = args[0];
                 }
 
+                if (args.Length > 1)
+                {
+                    outputDirectory = args[1];
+                }
+
                 Console.WriteLine($"Master端点: {masterEndpoint}");
+                Console.WriteLine($"输出目录: {outputDirectory}");
                 Console.WriteLine();
+
+                // 测试Master连接
+                Console.WriteLine("🔍 测试Master连接...");
+                if (await TestMasterConnection(masterEndpoint))
+                {
+                    Console.WriteLine("✅ Master连接成功!");
+                }
+                else
+                {
+                    Console.WriteLine("❌ 无法连接到Master，请确保Master服务已启动");
+                    Console.WriteLine("💡 启动Master命令: dotnet run --project src/MapReduce.Master testassets 3");
+                    Environment.Exit(1);
+                }
 
                 // 设置控制台取消处理
                 Console.CancelKeyPress += OnCancelKeyPress;
 
                 // 创建并启动Worker
-                _worker = new MapReduceWorker(masterEndpoint);
+                _worker = new MapReduceWorker(masterEndpoint, outputDirectory);
 
-                Console.WriteLine("Worker已启动，按 Ctrl+C 停止...");
+                Console.WriteLine("🚀 Worker已启动，等待任务分配...");
+                Console.WriteLine("⏹️  按 Ctrl+C 停止Worker");
                 Console.WriteLine("========================================");
                 Console.WriteLine();
 
@@ -57,6 +77,25 @@ namespace MapReduce.Worker
                 Console.WriteLine("========================================");
                 Console.WriteLine("Worker已停止");
                 Console.WriteLine($"停止时间: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+            }
+        }
+
+        /// <summary>
+        /// 测试Master连接
+        /// </summary>
+        private static async Task<bool> TestMasterConnection(string masterEndpoint)
+        {
+            try
+            {
+                using var client = new System.Net.Http.HttpClient();
+                client.Timeout = TimeSpan.FromSeconds(5);
+
+                var response = await client.GetAsync($"{masterEndpoint}/status");
+                return response.IsSuccessStatusCode;
+            }
+            catch
+            {
+                return false;
             }
         }
 

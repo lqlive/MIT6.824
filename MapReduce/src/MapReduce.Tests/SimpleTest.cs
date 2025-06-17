@@ -96,10 +96,10 @@ namespace MapReduce.Tests
             {
                 // 创建Master
                 var master = new MapReduceMaster(new[] { testFile }, 1);
-                DirectMasterService.SetMasterInstance(master);
+                Tests.DirectMasterService.SetMasterInstance(master);
 
                 // 测试Worker请求任务
-                var service = new DirectMasterService();
+                var service = new Tests.DirectMasterService();
                 var task = await service.RequestTaskAsync("test-worker");
 
                 Assert.NotNull(task);

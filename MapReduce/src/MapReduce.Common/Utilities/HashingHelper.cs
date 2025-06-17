@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 
 namespace MapReduce.Common.Utilities
 {
@@ -28,20 +29,44 @@ namespace MapReduce.Common.Utilities
         /// </summary>
         /// <param name="mapTaskId">Map任务ID</param>
         /// <param name="reduceTaskId">Reduce任务ID</param>
-        /// <returns>中间文件名</returns>
-        public static string GetIntermediateFileName(int mapTaskId, int reduceTaskId)
+        /// <param name="outputDirectory">输出目录，为空则使用当前目录</param>
+        /// <returns>中间文件的完整路径</returns>
+        public static string GetIntermediateFileName(int mapTaskId, int reduceTaskId, string outputDirectory = "")
         {
-            return $"mr-{mapTaskId}-{reduceTaskId}";
+            var fileName = $"mr-{mapTaskId}-{reduceTaskId}";
+
+            if (string.IsNullOrEmpty(outputDirectory))
+                return fileName;
+
+            return Path.Combine(outputDirectory, fileName);
         }
 
         /// <summary>
         /// 生成最终输出文件名
         /// </summary>
         /// <param name="reduceTaskId">Reduce任务ID</param>
-        /// <returns>输出文件名</returns>
-        public static string GetOutputFileName(int reduceTaskId)
+        /// <param name="outputDirectory">输出目录，为空则使用当前目录</param>
+        /// <returns>输出文件的完整路径</returns>
+        public static string GetOutputFileName(int reduceTaskId, string outputDirectory = "")
         {
-            return $"mr-out-{reduceTaskId}";
+            var fileName = $"mr-out-{reduceTaskId}";
+
+            if (string.IsNullOrEmpty(outputDirectory))
+                return fileName;
+
+            return Path.Combine(outputDirectory, fileName);
+        }
+
+        /// <summary>
+        /// 确保输出目录存在
+        /// </summary>
+        /// <param name="outputDirectory">输出目录</param>
+        public static void EnsureOutputDirectoryExists(string outputDirectory)
+        {
+            if (!string.IsNullOrEmpty(outputDirectory) && !Directory.Exists(outputDirectory))
+            {
+                Directory.CreateDirectory(outputDirectory);
+            }
         }
     }
 }

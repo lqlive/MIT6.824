@@ -1,0 +1,5 @@
+apple banana apple
+orange apple banana
+fruit counting test
+apple is red banana is yellow
+counting words counting frequency 

@@ -1,0 +1,5 @@
+banana orange banana
+apple orange fruit
+test case for MapReduce
+distributed system test
+banana apple counting 

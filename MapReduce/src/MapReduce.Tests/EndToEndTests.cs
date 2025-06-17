@@ -50,7 +50,7 @@ namespace MapReduce.Tests
 
             // 2. 创建并启动Master
             var master = new MapReduceMaster(inputFiles, 2);
-            DirectMasterService.SetMasterInstance(master);
+            Tests.DirectMasterService.SetMasterInstance(master);
             _output.WriteLine("Master已启动");
 
             // 3. 创建并启动多个Worker
@@ -59,10 +59,10 @@ namespace MapReduce.Tests
 
             try
             {
-                // 启动3个Worker
+                // 启动3个Worker（使用测试模式）
                 for (int i = 0; i < 3; i++)
                 {
-                    var worker = new MapReduceWorker("test-endpoint");
+                    var worker = CreateTestWorker();
                     workers.Add(worker);
 
                     var workerTask = Task.Run(async () =>
@@ -118,7 +118,7 @@ namespace MapReduce.Tests
             var inputFiles = await PrepareTestDataAsync();
 
             var master = new MapReduceMaster(inputFiles, 2);
-            DirectMasterService.SetMasterInstance(master);
+            Tests.DirectMasterService.SetMasterInstance(master);
 
             var workers = new List<MapReduceWorker>();
             var workerTasks = new List<Task>();
@@ -129,7 +129,7 @@ namespace MapReduce.Tests
                 // 启动2个Worker
                 for (int i = 0; i < 2; i++)
                 {
-                    var worker = new MapReduceWorker("test-endpoint");
+                    var worker = CreateTestWorker();
                     var cts = new CancellationTokenSource();
 
                     workers.Add(worker);
@@ -179,6 +179,16 @@ namespace MapReduce.Tests
                 await Task.WhenAll(workerTasks.Select(t => t.ContinueWith(_ => { })));
                 master.Dispose();
             }
+        }
+
+        /// <summary>
+        /// 创建测试用的Worker
+        /// </summary>
+        private MapReduceWorker CreateTestWorker()
+        {
+            // 创建一个使用DirectMasterService的Worker
+            var worker = new TestMapReduceWorker();
+            return worker;
         }
 
         /// <summary>
@@ -268,12 +278,13 @@ namespace MapReduce.Tests
             _output.WriteLine($"当前工作目录: {currentDir}");
 
             // 查找所有输出文件
-            var outputFiles = Directory.GetFiles(currentDir, "mr-out-*");
+            var outputDir = Path.Combine(currentDir, "test-output");
+            var outputFiles = Directory.Exists(outputDir) ? Directory.GetFiles(outputDir, "mr-out-*") : Array.Empty<string>();
             _output.WriteLine($"找到 {outputFiles.Length} 个输出文件");
 
             for (int i = 0; i < 2; i++) // 2个Reduce任务
             {
-                var outputFile = Path.Combine(currentDir, $"mr-out-{i}");
+                var outputFile = Path.Combine(outputDir, $"mr-out-{i}");
 
                 _output.WriteLine($"检查输出文件: {outputFile}");
 
@@ -380,6 +391,21 @@ namespace MapReduce.Tests
                 foreach (var file in outputFiles)
                 {
                     File.Delete(file);
+                }
+
+                // 清理测试输出目录
+                var testOutputDir = Path.Combine(currentDir, "test-output");
+                if (Directory.Exists(testOutputDir))
+                {
+                    var testOutputFiles = Directory.GetFiles(testOutputDir, "mr-out-*");
+                    foreach (var file in testOutputFiles)
+                    {
+                        File.Delete(file);
+                    }
+                    if (!Directory.EnumerateFileSystemEntries(testOutputDir).Any())
+                    {
+                        Directory.Delete(testOutputDir);
+                    }
                 }
             }
             catch (Exception ex)

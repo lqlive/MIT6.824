@@ -8,6 +8,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -30,6 +31,7 @@ namespace MapReduce.Worker
         private readonly Timer _heartbeatTimer;
         private readonly CancellationTokenSource _cancellationTokenSource;
         private readonly object _lockObject = new object();
+        private readonly string _outputDirectory;
 
         private bool _isRunning;
         private MapReduceTask? _currentTask;
@@ -40,14 +42,18 @@ namespace MapReduce.Worker
         private int _completedReduceTasks;
         private int _failedTasks;
 
-        public MapReduceWorker(string masterEndpoint = "http://localhost:8080")
+        public MapReduceWorker(string masterEndpoint = "http://localhost:8080", string outputDirectory = "output")
         {
             _workerId = Environment.MachineName + "-" + Environment.ProcessId + "-" + DateTime.Now.Ticks;
             _masterEndpoint = masterEndpoint;
+            _outputDirectory = outputDirectory;
             _cancellationTokenSource = new CancellationTokenSource();
 
-            // 这里简化实现，直接创建服务实例而不是通过WCF
-            _masterService = new DirectMasterService();
+            // 确保输出目录存在
+            HashingHelper.EnsureOutputDirectoryExists(_outputDirectory);
+
+            // 使用HTTP客户端连接Master服务
+            _masterService = new HttpMasterService(_masterEndpoint);
 
             // 使用示例的WordCount实现
             _mapFunction = new WordCountMapFunction();
@@ -59,6 +65,7 @@ namespace MapReduce.Worker
             _lastHeartbeat = DateTime.UtcNow;
 
             Console.WriteLine($"Worker {_workerId} 已启动，连接Master: {_masterEndpoint}");
+            Console.WriteLine($"输出目录: {Path.GetFullPath(_outputDirectory)}");
         }
 
         /// <summary>
@@ -215,11 +222,11 @@ namespace MapReduce.Worker
                     partitions[partition].Add(kv);
                 }
 
-                // 写入中间文件
+                // 写入中间文件到输出目录
                 var outputFiles = new List<string>();
                 foreach (var partition in partitions)
                 {
-                    string outputFile = HashingHelper.GetIntermediateFileName(task.TaskId, partition.Key);
+                    string outputFile = HashingHelper.GetIntermediateFileName(task.TaskId, partition.Key, _outputDirectory);
                     outputFiles.Add(outputFile);
 
                     var lines = partition.Value.Select(kv => $"{kv.Key}\t{kv.Value}");
@@ -292,7 +299,7 @@ namespace MapReduce.Worker
                 }
 
                 // 写入最终输出文件
-                string outputFile = $"mr-out-{task.ReduceIndex}";
+                string outputFile = HashingHelper.GetOutputFileName(task.ReduceIndex, _outputDirectory);
                 await File.WriteAllLinesAsync(outputFile, results);
 
                 task.OutputFile = outputFile;
@@ -370,58 +377,148 @@ namespace MapReduce.Worker
         {
             Stop();
             _cancellationTokenSource?.Dispose();
+
+            // 释放HTTP客户端
+            if (_masterService is HttpMasterService httpService)
+            {
+                httpService.Dispose();
+            }
         }
     }
 
     /// <summary>
-    /// 简化的Master服务实现，用于直接方法调用
-    /// 在实际分布式环境中，这应该通过网络通信实现
+    /// HTTP客户端实现，通过网络连接Master服务
     /// </summary>
-    public class DirectMasterService : IMapReduceService
+    public class HttpMasterService : IMapReduceService
     {
-        // 这里需要引用实际的Master实例
-        // 为了简化，我们创建一个静态引用
-        private static MapReduce.Master.MapReduceMaster? _masterInstance;
+        private readonly HttpClient _httpClient;
+        private readonly string _baseUrl;
 
-        public static void SetMasterInstance(MapReduce.Master.MapReduceMaster master)
+        public HttpMasterService(string masterEndpoint)
         {
-            _masterInstance = master;
+            _httpClient = new HttpClient();
+            _httpClient.Timeout = TimeSpan.FromSeconds(30);
+            _baseUrl = masterEndpoint.TrimEnd('/');
         }
 
         public async Task<MasterStatus> GetMasterStatusAsync()
         {
-            return await (_masterInstance?.GetMasterStatusAsync() ?? Task.FromResult(new MasterStatus
+            try
             {
-                CurrentPhase = "Waiting",
+                var response = await _httpClient.GetAsync($"{_baseUrl}/status");
+                if (response.IsSuccessStatusCode)
+                {
+                    var json = await response.Content.ReadAsStringAsync();
+                    return System.Text.Json.JsonSerializer.Deserialize<MasterStatus>(json) ?? new MasterStatus();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"获取Master状态失败: {ex.Message}");
+            }
+
+            // 返回默认状态
+            return new MasterStatus
+            {
+                CurrentPhase = "Unknown",
                 CompletedMapTasks = 0,
                 CompletedReduceTasks = 0,
                 ActiveWorkers = new List<string>(),
                 TotalMapTasks = 0,
                 TotalReduceTasks = 0,
                 IsCompleted = false
-            }));
+            };
         }
 
         public async Task<bool> IsAllTasksCompletedAsync()
         {
-            return await (_masterInstance?.IsAllTasksCompletedAsync() ?? Task.FromResult(false));
+            try
+            {
+                var response = await _httpClient.GetAsync($"{_baseUrl}/completed");
+                if (response.IsSuccessStatusCode)
+                {
+                    var result = await response.Content.ReadAsStringAsync();
+                    return bool.Parse(result);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"检查任务完成状态失败: {ex.Message}");
+            }
+            return false;
         }
 
         public async Task ReportTaskCompletionAsync(string workerId, int taskId, bool success, string[] outputFiles)
         {
-            if (_masterInstance != null)
-                await _masterInstance.ReportTaskCompletionAsync(workerId, taskId, success, outputFiles);
+            try
+            {
+                var data = new
+                {
+                    WorkerId = workerId,
+                    TaskId = taskId,
+                    Success = success,
+                    OutputFiles = outputFiles
+                };
+
+                var json = System.Text.Json.JsonSerializer.Serialize(data);
+                var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+
+                var response = await _httpClient.PostAsync($"{_baseUrl}/report", content);
+                if (!response.IsSuccessStatusCode)
+                {
+                    Console.WriteLine($"报告任务完成失败: {response.StatusCode}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"报告任务完成异常: {ex.Message}");
+            }
         }
 
         public async Task<MapReduceTask?> RequestTaskAsync(string workerId)
         {
-            return await _masterInstance?.RequestTaskAsync(workerId)!;
+            try
+            {
+                var response = await _httpClient.GetAsync($"{_baseUrl}/task?workerId={Uri.EscapeDataString(workerId)}");
+                if (response.IsSuccessStatusCode)
+                {
+                    var json = await response.Content.ReadAsStringAsync();
+                    if (!string.IsNullOrEmpty(json) && json != "null")
+                    {
+                        return System.Text.Json.JsonSerializer.Deserialize<MapReduceTask>(json);
+                    }
+                }
+                else if (response.StatusCode != System.Net.HttpStatusCode.NoContent)
+                {
+                    Console.WriteLine($"请求任务失败: {response.StatusCode}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"请求任务异常: {ex.Message}");
+            }
+            return null;
         }
 
         public async Task SendHeartbeatAsync(string workerId)
         {
-            if (_masterInstance != null)
-                await _masterInstance.SendHeartbeatAsync(workerId);
+            try
+            {
+                var response = await _httpClient.PostAsync($"{_baseUrl}/heartbeat?workerId={Uri.EscapeDataString(workerId)}", null);
+                if (!response.IsSuccessStatusCode)
+                {
+                    Console.WriteLine($"发送心跳失败: {response.StatusCode}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"发送心跳异常: {ex.Message}");
+            }
+        }
+
+        public void Dispose()
+        {
+            _httpClient?.Dispose();
         }
     }
 }
