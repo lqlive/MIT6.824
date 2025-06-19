@@ -35,6 +35,9 @@ public class RaftNode : IRaftNode
     private int _commitIndex = 0;
     private int _lastApplied = 0;
 
+    // 网络通信相关（简化版，实际应用中应该使用HTTP客户端或gRPC等）
+    private readonly Dictionary<string, IRaftNode> _peerNodes = new();
+
     public RaftNode(string nodeId, List<string> peers, ILogger<RaftNode> logger)
     {
         NodeId = nodeId;
@@ -70,6 +73,18 @@ public class RaftNode : IRaftNode
     }
 
     public bool IsLeader => State == RaftNodeState.Leader;
+
+    /// <summary>
+    /// 设置对等节点引用（用于网络通信）
+    /// 在实际应用中，这应该通过HTTP客户端、gRPC或其他网络协议实现
+    /// </summary>
+    public void SetPeerNodes(Dictionary<string, IRaftNode> peerNodes)
+    {
+        foreach (var peer in peerNodes)
+        {
+            _peerNodes[peer.Key] = peer.Value;
+        }
+    }
 
     public async Task<VoteResponse> RequestVoteAsync(VoteRequest request, CancellationToken cancellationToken = default)
     {
@@ -229,21 +244,273 @@ public class RaftNode : IRaftNode
     {
         _logger.LogInformation("节点 {NodeId} 开始选举", NodeId);
 
+        int currentTerm;
+        int lastLogIndex;
+        int lastLogTerm;
+
+        // 更新状态并准备选举
         lock (_stateLock)
         {
             _state = RaftNodeState.Candidate;
             _currentTerm++;
             _votedFor = NodeId; // 给自己投票
             _lastHeartbeat = DateTime.UtcNow;
+
+            currentTerm = _currentTerm;
+            lastLogIndex = _log.Count > 0 ? _log.Last().Index : 0;
+            lastLogTerm = _log.Count > 0 ? _log.Last().Term : 0;
         }
 
-        // TODO: 实现选举逻辑
-        // 1. 向所有其他节点发送RequestVote RPC
-        // 2. 统计选票
-        // 3. 如果获得多数选票，成为Leader
-        // 这将在完整实现中补充
+        _logger.LogInformation("节点 {NodeId} 成为候选人，任期 {Term}，开始请求投票", NodeId, currentTerm);
+
+        var votes = 1; // 给自己投票
+        var totalNodes = _peers.Count + 1; // 包括自己
+        var majorityVotes = totalNodes / 2 + 1;
+
+        _logger.LogDebug("需要 {MajorityVotes} 票（总共 {TotalNodes} 个节点）", majorityVotes, totalNodes);
+
+        // 特殊情况：如果只有一个节点，直接成为Leader
+        if (_peers.Count == 0)
+        {
+            _logger.LogInformation("单节点集群，节点 {NodeId} 直接成为Leader", NodeId);
+            await BecomeLeader();
+            return;
+        }
+
+        var voteRequest = new VoteRequest
+        {
+            Term = currentTerm,
+            CandidateId = NodeId,
+            LastLogIndex = lastLogIndex,
+            LastLogTerm = lastLogTerm
+        };
+
+        var voteTasks = new List<Task<VoteResponse>>();
+
+        // 并行向所有对等节点发送投票请求
+        foreach (var peerId in _peers)
+        {
+            if (_peerNodes.TryGetValue(peerId, out var peerNode))
+            {
+                var voteTask = RequestVoteFromPeerAsync(peerNode, voteRequest);
+                voteTasks.Add(voteTask);
+            }
+            else
+            {
+                _logger.LogWarning("无法找到对等节点 {PeerId} 的引用", peerId);
+            }
+        }
+
+        // 等待投票结果或超时
+        var electionTimeout = TimeSpan.FromMilliseconds(GetElectionTimeout());
+        var cancellationTokenSource = new CancellationTokenSource(electionTimeout);
+
+        try
+        {
+            while (voteTasks.Count > 0 && !cancellationTokenSource.Token.IsCancellationRequested)
+            {
+                var completedTask = await Task.WhenAny(voteTasks);
+                voteTasks.Remove(completedTask);
+
+                try
+                {
+                    var response = await completedTask;
+
+                    // 检查是否收到更高任期的响应
+                    if (response.Term > currentTerm)
+                    {
+                        _logger.LogInformation("收到更高任期 {NewTerm}，节点 {NodeId} 转为Follower",
+                            response.Term, NodeId);
+
+                        lock (_stateLock)
+                        {
+                            if (response.Term > _currentTerm)
+                            {
+                                _currentTerm = response.Term;
+                                _votedFor = null;
+                                _state = RaftNodeState.Follower;
+                                _lastHeartbeat = DateTime.UtcNow;
+                            }
+                        }
+                        return;
+                    }
+
+                    // 统计投票
+                    if (response.VoteGranted)
+                    {
+                        votes++;
+                        _logger.LogDebug("节点 {NodeId} 获得一票，当前票数: {Votes}/{MajorityVotes}",
+                            NodeId, votes, majorityVotes);
+
+                        // 检查是否获得多数票
+                        if (votes >= majorityVotes)
+                        {
+                            await BecomeLeader();
+                            return;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "获取投票响应时发生错误");
+                }
+            }
+
+            // 选举超时或没有获得多数票
+            _logger.LogInformation("节点 {NodeId} 选举失败，获得 {Votes} 票，需要 {MajorityVotes} 票",
+                NodeId, votes, majorityVotes);
+
+            lock (_stateLock)
+            {
+                if (_state == RaftNodeState.Candidate && _currentTerm == currentTerm)
+                {
+                    _state = RaftNodeState.Follower;
+                    _lastHeartbeat = DateTime.UtcNow;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogDebug("节点 {NodeId} 选举超时", NodeId);
+
+            lock (_stateLock)
+            {
+                if (_state == RaftNodeState.Candidate && _currentTerm == currentTerm)
+                {
+                    _state = RaftNodeState.Follower;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 向对等节点请求投票
+    /// </summary>
+    private async Task<VoteResponse> RequestVoteFromPeerAsync(IRaftNode peerNode, VoteRequest request)
+    {
+        try
+        {
+            var response = await peerNode.RequestVoteAsync(request);
+            _logger.LogTrace("收到来自节点的投票响应：Term={Term}, VoteGranted={VoteGranted}",
+                response.Term, response.VoteGranted);
+            return response;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "向对等节点请求投票时发生错误");
+            // 返回拒绝投票的响应
+            return new VoteResponse { Term = request.Term, VoteGranted = false };
+        }
+    }
+
+    /// <summary>
+    /// 成为Leader
+    /// </summary>
+    private async Task BecomeLeader()
+    {
+        _logger.LogInformation("🎉 节点 {NodeId} 成为Leader，任期 {Term}", NodeId, CurrentTerm);
+
+        lock (_stateLock)
+        {
+            _state = RaftNodeState.Leader;
+            _lastHeartbeat = DateTime.UtcNow;
+
+            // 初始化Leader状态
+            _nextIndex.Clear();
+            _matchIndex.Clear();
+
+            var nextIndex = _log.Count > 0 ? _log.Last().Index + 1 : 1;
+            foreach (var peerId in _peers)
+            {
+                _nextIndex[peerId] = nextIndex;
+                _matchIndex[peerId] = 0;
+            }
+        }
+
+        // 启动心跳任务
+        _heartbeatTask = Task.Run(SendHeartbeats, _cancellationTokenSource.Token);
 
         await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// 发送心跳（空的AppendEntries）
+    /// </summary>
+    private async Task SendHeartbeats()
+    {
+        while (!_cancellationTokenSource.Token.IsCancellationRequested && IsLeader)
+        {
+            try
+            {
+                var heartbeatTasks = new List<Task>();
+
+                foreach (var peerId in _peers)
+                {
+                    if (_peerNodes.TryGetValue(peerId, out var peerNode))
+                    {
+                        var heartbeatTask = SendHeartbeatToPeerAsync(peerNode);
+                        heartbeatTasks.Add(heartbeatTask);
+                    }
+                }
+
+                // 并行发送心跳
+                await Task.WhenAll(heartbeatTasks);
+
+                // 心跳间隔（通常比选举超时小得多）
+                await Task.Delay(50, _cancellationTokenSource.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "发送心跳时发生错误");
+            }
+        }
+    }
+
+    /// <summary>
+    /// 向对等节点发送心跳
+    /// </summary>
+    private async Task SendHeartbeatToPeerAsync(IRaftNode peerNode)
+    {
+        try
+        {
+            var request = new AppendEntriesRequest
+            {
+                Term = CurrentTerm,
+                LeaderId = NodeId,
+                Entries = new List<LogEntry>(), // 空心跳
+                PrevLogIndex = 0,
+                PrevLogTerm = 0,
+                LeaderCommit = _commitIndex
+            };
+
+            var response = await peerNode.AppendEntriesAsync(request);
+
+            // 如果收到更高任期的响应，转为Follower
+            if (response.Term > CurrentTerm)
+            {
+                _logger.LogInformation("心跳收到更高任期 {NewTerm}，节点 {NodeId} 转为Follower",
+                    response.Term, NodeId);
+
+                lock (_stateLock)
+                {
+                    if (response.Term > _currentTerm)
+                    {
+                        _currentTerm = response.Term;
+                        _votedFor = null;
+                        _state = RaftNodeState.Follower;
+                        _lastHeartbeat = DateTime.UtcNow;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogTrace(ex, "发送心跳到对等节点时发生错误");
+        }
     }
 
     /// <summary>

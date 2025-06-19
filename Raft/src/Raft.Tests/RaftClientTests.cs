@@ -13,22 +13,25 @@ namespace Raft.Tests;
 public class RaftClientTests
 {
     private readonly ITestOutputHelper _output;
-    private readonly ILogger<RaftClient> _logger;
+    private readonly ILoggerFactory _loggerFactory;
 
     public RaftClientTests(ITestOutputHelper output)
     {
         _output = output;
-        _logger = new TestLogger<RaftClient>(output);
+        _loggerFactory = LoggerFactory.Create(builder =>
+            builder.AddProvider(new XunitLoggerProvider(output))
+                   .SetMinimumLevel(LogLevel.Debug));
     }
 
     [Fact]
     public void Constructor_ShouldInitializeClientCorrectly()
     {
         // Arrange
-        var clusterNodes = new List<string> { "node1:5001", "node2:5002", "node3:5003" };
+        var logger = _loggerFactory.CreateLogger<RaftClient>();
+        var serverEndpoints = new List<string> { "http://localhost:8080", "http://localhost:8081" };
 
         // Act
-        var client = new RaftClient(clusterNodes, _logger);
+        var client = new RaftClient(serverEndpoints, logger);
 
         // Assert
         Assert.NotNull(client);
@@ -40,7 +43,7 @@ public class RaftClientTests
         // Arrange
         var clusterNodes = new List<string> { "nonexistent:5001" };
         var httpClient = new HttpClient(new MockHttpMessageHandler());
-        var client = new RaftClient(clusterNodes, _logger, httpClient);
+        var client = new RaftClient(clusterNodes, _loggerFactory.CreateLogger<RaftClient>(), httpClient);
 
         // Act
         var result = await client.SubmitCommandAsync("test command");
@@ -56,7 +59,7 @@ public class RaftClientTests
         // Arrange
         var clusterNodes = new List<string> { "offline1:5001", "offline2:5002" };
         var httpClient = new HttpClient(new MockHttpMessageHandler());
-        var client = new RaftClient(clusterNodes, _logger, httpClient);
+        var client = new RaftClient(clusterNodes, _loggerFactory.CreateLogger<RaftClient>(), httpClient);
 
         // Act
         var status = await client.GetClusterStatusAsync();
